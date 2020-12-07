@@ -13,6 +13,7 @@
 #include <opencv2/core.hpp>
 #include <vector>
 #include <Eigen/Eigen>
+#include <sophus/se3.hpp>
 
 //#include <Eigen/V>
 #include <vtkFloatArray.h>
@@ -31,6 +32,9 @@ typedef Eigen::Matrix<dtype, 2, 1> Vec2;
 #define DTYPE CV_32F
 #define DTYPEC1 CV_32FC1
 constexpr dtype INF = 5e10;
+
+// sophus library
+typedef Sophus::SE3<dtype> se3;
 
 typedef uint16_t d_bits;
 typedef unsigned short IdxType;

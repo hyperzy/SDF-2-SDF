@@ -22,23 +22,31 @@ struct IndexSet {
 
 class GridBase {
 protected:
+    // 0 for uninitialization
     DimUnit m_depth, m_height, m_width;
 public:
     GridBase(DimUnit depth, DimUnit height, DimUnit width);
+    GridBase();
     unsigned long Index(IdxType i, IdxType j, IdxType k) const;
     bool isValidRange(IdxType i, IdxType j, IdxType k) const;
     DimUnit getDepth() const;
     DimUnit getWidth() const;
     DimUnit getHeight() const;
+    void setDepth(int depth);
+    void setHeight(int height);
+    void setWidth(int width);
     virtual void Init() = 0;
 };
 
 class Grid3d: public GridBase {
+    dtype m_resolution;
+    Vec3 m_min_coord;
+    Vec3 m_max_coord;
 public:
     // todo: dimension has not set yet
     Grid3d(DimUnit depth, DimUnit height, DimUnit width);
+    Grid3d();
     // signed distance function
-    // todo: initialize phi to -INF
     std::vector<dtype> phi;
     std::vector<Vec4> coord;
     std::vector<IndexSet> front;
@@ -47,6 +55,7 @@ public:
     void Init() override;
     // todo: use x_resolution, y_resolution, z_resolution
     void initCoord(Vec3 origin, dtype resolution);
+    dtype getResolution() const;
 };
 
 inline unsigned long GridBase::Index(IdxType i, IdxType j, IdxType k) const {

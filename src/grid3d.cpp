@@ -10,8 +10,9 @@ using namespace std;
 // todo: initialization have not set yet
 GridBase::GridBase(DimUnit depth, DimUnit height, DimUnit width):
         m_depth(depth), m_height(height), m_width(width){
-
 }
+
+GridBase::GridBase():m_depth(0), m_height(0), m_width(0) {}
 
 DimUnit GridBase::getDepth() const {
     return this->m_depth;
@@ -23,6 +24,24 @@ DimUnit GridBase::getWidth() const {
 
 DimUnit GridBase::getHeight() const {
     return this->m_height;
+}
+
+void GridBase::setDepth(int depth) {
+    if (depth <= 0)
+        cerr << "Cannot accept non-positive value." << "\n";
+    m_depth = depth;
+}
+
+void GridBase::setHeight(int height) {
+    if (height <= 0)
+        cerr << "Cannot accept non-positive value." << "\n";
+    m_height = height;
+}
+
+void GridBase::setWidth(int width) {
+    if (width <= 0)
+        cerr << "Cannot accept non-positive value." << "\n";
+    m_width = width;
 }
 
 void Grid3d::savePhi(const std::string &file_path) {
@@ -51,6 +70,17 @@ Grid3d::Grid3d(DimUnit depth, DimUnit height, DimUnit width) : GridBase(depth, h
 
 }
 
+Grid3d::Grid3d(): GridBase() {
+
+}
+
+dtype Grid3d::getResolution() const {
+    if (m_resolution <= 0) {
+        cerr << "Resolution is not set yet." << endl;
+    }
+    return m_resolution;
+}
+
 void Grid3d::Init() {
     unsigned long total_num = m_height * m_width * m_depth;
     this->phi.resize(total_num, -INF);
@@ -58,6 +88,9 @@ void Grid3d::Init() {
 }
 
 void Grid3d::initCoord(Vec3 origin, dtype resolution) {
+    m_resolution = resolution;
+    m_min_coord = origin;
+    m_max_coord = origin + Vec3(m_width, m_height, m_depth) * m_resolution;
     for (int i = 0; i < m_depth; i++) {
         for (int j = 0; j < m_height; j++) {
             for (int k = 0; k < m_width; k++) {
