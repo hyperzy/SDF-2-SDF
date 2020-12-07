@@ -270,10 +270,12 @@ void DepthImage::loadImage(const std::string &filepath) {
         cv::cvtColor( depth_map, depth_map, COLOR_RGB2GRAY );
         this->__max_inf = true;
         Mat mask = depth_map == inf_notation;
+        depth_map.convertTo( depth_map, DTYPEC1, 0.001 );
         depth_map.setTo(INF, mask);
     }
-    // convert to meters
-    depth_map.convertTo( depth_map, DTYPEC1, 0.001 );
+    else
+        // convert to meters
+        depth_map.convertTo( depth_map, DTYPEC1, 0.001 );
     minMaxIdx(depth_map, &min_v, &this->_max_depth);
     this->m_img = depth_map.clone();
     this->m_width = this->m_img.cols;

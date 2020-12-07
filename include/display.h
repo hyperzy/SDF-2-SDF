@@ -29,7 +29,7 @@ class Display {
     vtkSmartPointer<vtkRenderWindowInteractor> m_iren;
     vtkSmartPointer<vtkAssembly> m_assembly;
 public:
-    const std::vector<ImageBase *> &all_cams;
+    std::vector<ImageBase *> all_cams;
     Display(const std::vector<ImageBase *> &all_cams);
     Display();
     void Init();
@@ -37,6 +37,8 @@ public:
     void addAllCameras();
     void addBoundingBox(const std::vector<Vec3> &bound_coord);
     void addIsoSurface(const Grid3d *grid);
+    void addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
+                       int depth, int height, int width, dtype resolution, std::string color="");
     void addAxes();
     void startRender();
 

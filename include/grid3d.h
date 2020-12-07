@@ -39,6 +39,7 @@ public:
 };
 
 class Grid3d: public GridBase {
+protected:
     dtype m_resolution;
     Vec3 m_min_coord;
     Vec3 m_max_coord;
@@ -67,7 +68,32 @@ inline bool GridBase::isValidRange(IdxType i, IdxType j, IdxType k) const {
            && k >= 0 && k < m_width;
 }
 
-inline unsigned long Index(int i, int j, int k, int depth, int height, int width) {
+inline unsigned long Index(int i, int j, int k, int height, int width) {
     return i * width * height + j * width + k;
 }
+
+class TSDF: public Grid3d {
+    dtype m_delta = 0;
+    dtype m_eta = 0;
+    dtype m_fx, m_fy, m_cx, m_cy;
+    dtype m_1_fx, m_1_fy;
+    int m_padding_size = 3;
+public:
+    TSDF();
+    void setDelta(dtype delta);
+    void setEta(dtype eta);
+    dtype getDelta() const;
+    dtype getEta() const;
+    void setIntrinsic(const Mat3 &K);
+    void setPaddingSize(int size);
+    Vec3 getMinCoord() const;
+    /**
+     * @brief Determine the volume with respect to the reference depth image.
+     * @param depth_image Input reference depth image.
+     * @param mask Mask for the ROI. Null if the input depth image is a synthetic one (with known maximum INF)
+     */
+    void Init(const cv::Mat &depth_image, dtype resolution, cv::InputOutputArray mask = cv::noArray());
+
+    void computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi);
+};
 #endif //SDF_2_SDF_GRID3D_H

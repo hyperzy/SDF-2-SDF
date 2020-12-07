@@ -28,7 +28,8 @@ typedef Eigen::Matrix<dtype, 3, 3> Mat3;
 typedef Eigen::Matrix<dtype, 4, 1> Vec4;
 typedef Eigen::Matrix<dtype, 3, 1> Vec3;
 typedef Eigen::Matrix<dtype, 2, 1> Vec2;
-//typedef Eigen::
+
+// opencv float value
 #define DTYPE CV_32F
 #define DTYPEC1 CV_32FC1
 constexpr dtype INF = 5e10;

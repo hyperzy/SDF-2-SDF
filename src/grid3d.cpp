@@ -3,6 +3,7 @@
 //
 
 #include "grid3d.h"
+#include <cmath> // round(), ceil
 #include <fstream>
 
 using namespace std;
@@ -99,6 +100,134 @@ void Grid3d::initCoord(Vec3 origin, dtype resolution) {
                 this->coord[idx][1] = origin[1] + j * resolution;       // y
                 this->coord[idx][2] = origin[2] + i * resolution;       // z
                 this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
+            }
+        }
+    }
+}
+
+TSDF::TSDF() {}
+
+void TSDF::setDelta(dtype delta) {
+    if (!(delta > 0 && delta < .005)) {
+        cerr << "Recommended delta value is between 0 and 0.005m" << "\n";
+    }
+    m_delta = delta;
+}
+
+void TSDF::setEta(dtype eta) {
+    m_eta = eta;
+}
+
+dtype TSDF::getDelta() const {
+    if (m_delta == 0) {
+        cerr << "delta is not set yet." << "\n";
+    }
+    return m_delta;
+}
+
+dtype TSDF::getEta() const {
+    if (m_eta == 0) {
+        cerr << "eta is not set yet." << "\n";
+    }
+    return m_eta;
+}
+
+Vec3 TSDF::getMinCoord() const {
+    return m_min_coord;
+}
+
+void TSDF::setPaddingSize(int size) {
+    m_padding_size = size;
+}
+
+void TSDF::setIntrinsic(const Mat3 &K) {
+    m_fx = K(0, 0);
+    m_fy = K(1, 1);
+    m_cx = K(0, 2);
+    m_cy = K(1, 2);
+    m_1_fx = 1. / m_fx;
+    m_1_fy = 1. / m_fy;
+}
+
+void TSDF::Init(const cv::Mat &depth_image, dtype resolution,
+                                 cv::InputOutputArray mask) {
+    if (m_fx == 0) {
+        cerr << "Intrinsics not set yet." << "\n";
+    }
+    if (m_eta == 0 || m_delta == 0) {
+        cerr << "delta or eta not set yet." << "\n";
+    }
+    m_resolution = resolution;
+    cv::Mat temp_mask;
+    if (mask.empty()) {
+        temp_mask = depth_image != INF;
+    } else {
+        temp_mask = mask.getMat();
+    }
+    vector<cv::Point> idx_roi;
+    cv::findNonZero(temp_mask, idx_roi);
+    // determine the volume of the reference frame.
+    double z_min, z_max;
+    cv::minMaxIdx(depth_image, &z_min, &z_max, nullptr, nullptr, temp_mask);
+    m_min_coord(2) = z_min;
+    m_max_coord(2) = z_max;
+    // todo: parallelization of finding the min & max of x & y coord
+    int ux_min = depth_image.cols, ux_max = 0;
+    int uy_min = depth_image.rows, uy_max = 0;     // min & max of x & y in image coordinated system
+    for (const auto &idx: idx_roi) {
+        if (idx.x < ux_min) ux_min = idx.x;
+        else if (idx.x > ux_max) ux_max = idx.x;
+        if (idx.y < uy_min) uy_min = idx.y;
+        else if (idx.y > uy_max) uy_max = idx.y;
+    }
+    m_min_coord(0) = m_1_fx * (ux_min - m_cx) * z_max;      // multiply with z_max instead of z_min for more tolerance
+    m_min_coord(1) = m_1_fy * (uy_min - m_cy) * z_max;      // multiply with z_max instead of z_min for more tolerance
+    m_max_coord(0) = m_1_fx * (ux_max - m_cx) * z_max;
+    m_max_coord(1) = m_1_fy * (uy_max - m_cy) * z_max;
+
+    cout << "max coord before padding: " << m_max_coord << endl;
+
+    m_min_coord -= Vec3(1., 1., 1.) * resolution * m_padding_size;
+    m_max_coord += Vec3(1., 1., 1.) * resolution * m_padding_size;
+    m_depth = ceil((m_max_coord(2) - m_min_coord(2)) / resolution) + 1;
+    m_height = ceil((m_max_coord(1) - m_min_coord(1)) / resolution) + 1;
+    m_width = ceil((m_max_coord(0) - m_min_coord(0)) / resolution) + 1;
+    m_max_coord = m_min_coord + Vec3(m_width, m_height, m_depth) * resolution;
+    cout << "max coord after padding" << m_max_coord << endl;
+    this->Grid3d::Init();
+
+    // compute truncated signed distance value (level set value)
+    for (int i = 0; i < m_depth; i++) {
+        for (int j = 0; j < m_height; j++) {
+            for (int k = 0; k < m_width; k++) {
+                auto idx = this->Index(i, j, k);
+                this->coord[idx][0] = m_min_coord(0) + k * resolution;       // x
+                this->coord[idx][1] = m_min_coord(1) + j * resolution;       // y
+                this->coord[idx][2] = m_min_coord(2) + i * resolution;       // z
+                this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
+                dtype z = coord[idx][2];
+                dtype ux = round(coord[idx][0] * m_fx / z + m_cx);
+                dtype uy = round(coord[idx][1] * m_fy / z + m_cy);
+                phi[idx] = depth_image.at<dtype>(uy, ux) - coord[idx][2];
+            }
+        }
+    }
+}
+
+void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi) {
+    phi.resize(this->phi.size());
+    for (int i = 0; i < m_depth; i++) {
+        for (int j = 0; j < m_height; j++) {
+            for (int k = 0; k < m_width; k++) {
+                auto idx = this->Index(i, j, k);
+                this->coord[idx][0] = m_min_coord(0) + k * m_resolution;       // x
+                this->coord[idx][1] = m_min_coord(1) + j * m_resolution;       // y
+                this->coord[idx][2] = m_min_coord(2) + i * m_resolution;       // z
+                this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
+                dtype z = coord[idx][2];
+                dtype ux = round(coord[idx][0] * m_fx / z + m_cx);
+                dtype uy = round(coord[idx][1] * m_fy / z + m_cy);
+                phi[idx] = depth_image.at<dtype>(uy, ux) - coord[idx][2];
             }
         }
     }

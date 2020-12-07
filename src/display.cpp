@@ -483,6 +483,8 @@ Display::Display(const std::vector<ImageBase *> &all_cams): all_cams(all_cams), 
 
 }
 
+Display::Display() {}
+
 void Display::Init() {
     this->m_ren = vtkSmartPointer<vtkRenderer>::New();
     this->m_renw = vtkSmartPointer<vtkRenderWindow>::New();
@@ -531,7 +533,7 @@ void Display::addBoundingBox(const std::vector<Vec3> &bound_coord) {
 
 void Display::addAxes() {
     this->m_axes = vtkSmartPointer<vtkAxesActor>::New();
-    this->m_axes->SetTotalLength(0.1, 0.1, 0.1);
+    this->m_axes->SetTotalLength(.1, .1, .1);
     this->m_axes->GetXAxisCaptionActor2D()->GetCaptionTextProperty()->SetFontSize(0.1);
     this->m_axes->GetYAxisCaptionActor2D()->GetCaptionTextProperty()->SetFontSize(0.1);
     this->m_axes->GetZAxisCaptionActor2D()->GetCaptionTextProperty()->SetFontSize(0.1);
@@ -551,43 +553,18 @@ void Display::startRender() {
 }
 
 void Display::addIsoSurface(const Grid3d *grid) {
-    int height = grid->getHeight();
-    int width = grid->getWidth();
-    int depth = grid->getDepth();
-    auto total_num_points = height * width * depth;
-//    // todo: remember to delete
-//    auto new_phi = new dtype [total_num_points];
-//    for (IdxType k = 0; k < depth; k++) {
-//        for (IdxType j = 0; j < width; j++) {
-//            for (IdxType i = 0; i < height; i++) {
-//                new_phi[i + j * height + k * height * width] = grid->phi[grid->Index(i, j, k)];
-////                new_phi[i * width * depth + j * depth + k] = grid->phi[grid->Index(i, j, k)];
-//                // y first
-////                new_phi[i + j * height + k * height * width] = grid->phi[grid->Index(i, j, k)];
-//                // x first
-////                new_phi[k * width * height + i * width + j] = grid->phi[grid->Index(i, j, k)];
-//            }
-//        }
-//    }
+}
 
-//    for (IdxType k = 0; k < depth; k++) {
-//        for (IdxType i = 0; i < )
-//    }
+void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
+                            int depth, int height, int width, dtype resolution, string color) {
     vtkSmartPointer<vtkFloatArray> phi_arr = vtkSmartPointer<vtkFloatArray>::New();
-//    vector<dtype> copy_phi(grid->phi);
-    phi_arr->SetArray(const_cast<dtype *>(grid->phi.data()), total_num_points, 1);
-
+    unsigned long total_size = depth * height * width;
+    phi_arr->SetArray(const_cast<float *>(phi.data()), total_size, 1);
     auto phi_data = vtkSmartPointer<vtkImageData>::New();
-//    auto phi_data = vtkSmartPointer<vtkImageImport>::New();
     phi_data->GetPointData()->SetScalars(phi_arr);
-    phi_data->SetDimensions(depth, height, width);
-
-    auto min_coord = grid->coord[0];
-    phi_data->SetOrigin(min_coord(0), min_coord(1), min_coord(2));
-//    phi_data->SetOrigin(bound[0][2], bound[0][1], bound[0][1]);
-//    phi_data->SetOrigin(bound[0][0], bound[0][1], bound[0][2]);
-//    phi_data->SetOrigin(bound[0][2], bound[0][1], bound[0][0]);
-    phi_data->SetSpacing(grid->getResolution(), grid->getResolution(), grid->getResolution());
+    phi_data->SetDimensions(width, height, depth);  // len_x, len_y, len_z
+    phi_data->SetOrigin(origin(0), origin(1), origin(2));
+    phi_data->SetSpacing(resolution, resolution, resolution);
 
     auto isosurface = vtkSmartPointer<vtkMarchingCubes>::New();
     isosurface->SetInputData(phi_data);
@@ -599,10 +576,12 @@ void Display::addIsoSurface(const Grid3d *grid) {
 
     auto surface_mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
     surface_mapper->SetInputConnection(isosurface->GetOutputPort());
-    surface_mapper->ScalarVisibilityOn();
+    surface_mapper->ScalarVisibilityOff();  // coloring the actor instead of data itself.
 
     auto surface_actor = vtkSmartPointer<vtkActor>::New();
     surface_actor->SetMapper(surface_mapper);
+    if (!color.empty())
+        surface_actor->GetProperty()->SetColor(m_colors->GetColor3d(color).GetData());
 
     this->m_assembly->AddPart(surface_actor);
 }
