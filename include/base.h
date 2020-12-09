@@ -25,9 +25,11 @@ typedef float dtype;
 //typedef vtkFloatArray vtkDtypeArray;
 //typedef cv::Point3f Point3;
 typedef Eigen::Matrix<dtype, 3, 3> Mat3;
+typedef Eigen::Matrix<dtype, 4, 4> Mat4;
 typedef Eigen::Matrix<dtype, 4, 1> Vec4;
 typedef Eigen::Matrix<dtype, 3, 1> Vec3;
 typedef Eigen::Matrix<dtype, 2, 1> Vec2;
+typedef Eigen::Matrix<dtype, 6, 1> Vec6;    // for se3;
 
 // opencv float value
 #define DTYPE CV_32F
@@ -35,7 +37,7 @@ typedef Eigen::Matrix<dtype, 2, 1> Vec2;
 constexpr dtype INF = 5e10;
 
 // sophus library
-typedef Sophus::SE3<dtype> se3;
+typedef Sophus::SE3<dtype> SE3;
 
 typedef uint16_t d_bits;
 typedef unsigned short IdxType;

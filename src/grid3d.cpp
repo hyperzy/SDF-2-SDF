@@ -149,8 +149,7 @@ void TSDF::setIntrinsic(const Mat3 &K) {
     m_1_fy = 1. / m_fy;
 }
 
-void TSDF::Init(const cv::Mat &depth_image, dtype resolution,
-                                 cv::InputOutputArray mask) {
+void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolution) {
     if (m_fx == 0) {
         cerr << "Intrinsics not set yet." << "\n";
     }
@@ -158,17 +157,11 @@ void TSDF::Init(const cv::Mat &depth_image, dtype resolution,
         cerr << "delta or eta not set yet." << "\n";
     }
     m_resolution = resolution;
-    cv::Mat temp_mask;
-    if (mask.empty()) {
-        temp_mask = depth_image != INF;
-    } else {
-        temp_mask = mask.getMat();
-    }
     vector<cv::Point> idx_roi;
-    cv::findNonZero(temp_mask, idx_roi);
+    cv::findNonZero(mask, idx_roi);
     // determine the volume of the reference frame.
     double z_min, z_max;
-    cv::minMaxIdx(depth_image, &z_min, &z_max, nullptr, nullptr, temp_mask);
+    cv::minMaxIdx(depth_image, &z_min, &z_max, nullptr, nullptr, mask);
     m_min_coord(2) = z_min;
     m_max_coord(2) = z_max;
     // todo: parallelization of finding the min & max of x & y coord
@@ -195,23 +188,57 @@ void TSDF::Init(const cv::Mat &depth_image, dtype resolution,
     m_max_coord = m_min_coord + Vec3(m_width, m_height, m_depth) * resolution;
     cout << "max coord after padding" << m_max_coord << endl;
     this->Grid3d::Init();
-
+    m_weight.resize(phi.size(), 0);
     // compute truncated signed distance value (level set value)
+    // todo: parallelization
     for (int i = 0; i < m_depth; i++) {
         for (int j = 0; j < m_height; j++) {
             for (int k = 0; k < m_width; k++) {
                 auto idx = this->Index(i, j, k);
-                this->coord[idx][0] = m_min_coord(0) + k * resolution;       // x
-                this->coord[idx][1] = m_min_coord(1) + j * resolution;       // y
-                this->coord[idx][2] = m_min_coord(2) + i * resolution;       // z
+                this->coord[idx][0] = m_min_coord(0) + (k + .5) * resolution;       // x
+                this->coord[idx][1] = m_min_coord(1) + (j + .5) * resolution;       // y
+                this->coord[idx][2] = m_min_coord(2) + (i + .5) * resolution;       // z
                 this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
                 dtype z = coord[idx][2];
                 dtype ux = round(coord[idx][0] * m_fx / z + m_cx);
                 dtype uy = round(coord[idx][1] * m_fy / z + m_cy);
-                phi[idx] = depth_image.at<dtype>(uy, ux) - coord[idx][2];
+                dtype phi_val = depth_image.at<dtype>(uy, ux) - coord[idx][2];
+                if (phi_val <= -m_delta)
+                    phi[idx] = -1.;
+                else if (phi_val >= m_delta)
+                    phi[idx] = 1.;
+                else
+                    phi[idx] = phi_val / m_delta;
+                if (phi_val > -m_eta)
+                    m_weight[idx] = 1;
             }
         }
     }
+}
+
+dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask,
+                             int i, int j, int k, const Mat4 &T_mat, int &weight) {
+    auto idx = Index(i, j, k);
+    auto ref_coord_cur = coord[idx];
+    ref_coord_cur = T_mat * ref_coord_cur;
+    dtype z = ref_coord_cur(2);
+    dtype x = ref_coord_cur(0), y = ref_coord_cur(1);
+    int ux = round(m_fx * x / z + m_cx);
+    int uy = round(m_fy * y / z + m_cy);
+    // the projection is out of the image scope (or ROI), so this 3D point must lie in the exterior of the object
+    if (ux < 0 || ux >= m_width || uy < 0 || uy >= m_height || !mask.at<uchar>(uy, ux)) {
+        weight = 0;
+        return 0;
+    }
+    dtype phi_val = cur_depth_image.at<dtype>(uy, ux) - z;
+    weight = phi_val > -m_eta ? 1 : 0;
+    if (phi_val <= -m_delta) {
+        return -1.;
+    }
+    else if (phi_val > m_delta)
+        return 1.;
+    else
+        return phi_val / m_delta;
 }
 
 void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi) {
@@ -220,10 +247,6 @@ void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi
         for (int j = 0; j < m_height; j++) {
             for (int k = 0; k < m_width; k++) {
                 auto idx = this->Index(i, j, k);
-                this->coord[idx][0] = m_min_coord(0) + k * m_resolution;       // x
-                this->coord[idx][1] = m_min_coord(1) + j * m_resolution;       // y
-                this->coord[idx][2] = m_min_coord(2) + i * m_resolution;       // z
-                this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
                 dtype z = coord[idx][2];
                 dtype ux = round(coord[idx][0] * m_fx / z + m_cx);
                 dtype uy = round(coord[idx][1] * m_fy / z + m_cy);

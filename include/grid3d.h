@@ -87,13 +87,40 @@ public:
     void setIntrinsic(const Mat3 &K);
     void setPaddingSize(int size);
     Vec3 getMinCoord() const;
+    std::vector<dtype> m_weight;
     /**
      * @brief Determine the volume with respect to the reference depth image.
      * @param depth_image Input reference depth image.
      * @param mask Mask for the ROI. Null if the input depth image is a synthetic one (with known maximum INF)
+     * @param resolution
      */
-    void Init(const cv::Mat &depth_image, dtype resolution, cv::InputOutputArray mask = cv::noArray());
+    void Init(const cv::Mat &ref_depth_image, const cv::Mat &mask, dtype resolution);
 
+    /**
+     * @brief Compute phi vals & weights of voxels in the current frame
+     * @param cur_depth_image
+     * @param i
+     * @param j
+     * @param k
+     * @param T_mat Transformation matrix mapping coordinate in ref-frame into cur-frame.
+     * @param weight Output
+     * @return phi value
+     */
+    dtype computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask, int i, int j, int k,
+                           const Mat4 &T_mat, int &weight);
+
+    // used for testing some scenarios
     void computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi);
+
+    /**
+     * @brief Estimating the twist from refrence frame to
+     * @param ref_depth_image
+     * @param cur_depth_image
+     * @param ref_mask
+     * @param cur_mask
+     * @return
+     */
+    Vec6 estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image,
+                       const cv::Mat &ref_mask, const cv::Mat &cur_mask);
 };
 #endif //SDF_2_SDF_GRID3D_H

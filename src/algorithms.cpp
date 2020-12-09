@@ -18,20 +18,13 @@ void testAll() {
     tsdf->setEta(.001);
     tsdf->setPaddingSize(3);
     dtype resolution = .002;
-    tsdf->Init(p_depth_img->getImage(), resolution);
+    cv::Mat mask = p_depth_img->getImage() != INF;
+    tsdf->Init(p_depth_img->getImage(), mask, resolution);
 
     auto displayer = make_shared<Display>();
     displayer->Init();
-    displayer->addIsoSurface(tsdf->phi, tsdf->getMinCoord(), tsdf->getDepth(), tsdf->getHeight(), tsdf->getWidth(), resolution);
-
-    // test displaying two isosurface
-    vector<dtype> test_phi;
-    auto p_depth_img2 = std::make_shared<DepthImage>();
-    p_depth_img2->loadImage("../res/Synthetic_Bunny_Circle/depth_000001.exr");
-    tsdf->computeAnotherPhi(p_depth_img2->getImage(), test_phi);
-    displayer->addIsoSurface(test_phi, tsdf->getMinCoord(), tsdf->getDepth(), tsdf->getHeight(), tsdf->getWidth(), resolution, "Silver");
-
     displayer->addAxes();
+    displayer->addIsoSurface(tsdf->phi, tsdf->getMinCoord(), tsdf->getDepth(), tsdf->getHeight(), tsdf->getWidth(), resolution);
     displayer->startRender();
 }
 
