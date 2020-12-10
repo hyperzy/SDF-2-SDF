@@ -109,8 +109,6 @@ public:
     dtype computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask, int i, int j, int k,
                            const Mat4 &T_mat, int &weight);
 
-    // used for testing some scenarios
-    void computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi);
 
     /**
      * @brief Estimating the twist from refrence frame to
@@ -118,9 +116,26 @@ public:
      * @param cur_depth_image
      * @param ref_mask
      * @param cur_mask
-     * @return
+     * @param resolution
+     * @param max_num_iteration
+     * @return Twist of 6 DoF.
      */
     Vec6 estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image,
-                       const cv::Mat &ref_mask, const cv::Mat &cur_mask);
-};
+                       const cv::Mat &ref_mask, const cv::Mat &cur_mask,
+                       dtype resolution,
+                       int max_num_iteration);
+
+    /**
+     * @brief Computing the gradient of phi val w.r.t. twist.
+     * @param T_mat Transformation matrix that maps coordinate in ref-frame into cur-frame.
+     * @param i
+     * @param j
+     * @param k
+     * @param gradient Gradient vector in shape 6x1.
+     * @return True if valid gradient exists else false.
+     */
+    bool computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient);
+
+    // used for testing some scenarios
+    void computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi);};
 #endif //SDF_2_SDF_GRID3D_H

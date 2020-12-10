@@ -15,11 +15,13 @@ void testAll() {
     auto tsdf = make_shared<TSDF>();
     tsdf->setIntrinsic(p_depth_img->getIntrinsic());
     tsdf->setDelta(0.002);
-    tsdf->setEta(.001);
+    tsdf->setEta(.002);
     tsdf->setPaddingSize(3);
     dtype resolution = .002;
     cv::Mat mask = p_depth_img->getImage() != INF;
     tsdf->Init(p_depth_img->getImage(), mask, resolution);
+
+    tsdf->estimateTwist(p_depth_img->getImage(), p_depth_img->getImage(), mask, mask, resolution, 50);
 
     auto displayer = make_shared<Display>();
     displayer->Init();

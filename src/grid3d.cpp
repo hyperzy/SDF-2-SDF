@@ -8,7 +8,6 @@
 
 using namespace std;
 
-// todo: initialization have not set yet
 GridBase::GridBase(DimUnit depth, DimUnit height, DimUnit width):
         m_depth(depth), m_height(height), m_width(width){
 }
@@ -214,15 +213,50 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
             }
         }
     }
+//    ofstream fout;
+//    fout.open("../res/dist.txt", ios::out);
+//    for (int z = 0; z < m_depth; z++) {
+//        fout << "z = " << z << endl;
+//        for (int x = 0; x < m_width; x++)
+//        {fout << scientific << setprecision(3) << setw(5) << setfill('0') << (float)x << " "; }
+//        fout << endl;
+//        for (int y = 0; y < m_height; y++) {
+//
+//            for (int x = 0 ; x < m_width; x++) {
+//                fout << scientific << setprecision(3) << setw(5) << setfill('0') << phi[this->Index(z, y, x)] << " ";
+//            }
+//            fout << endl;
+//        }
+//        fout << endl;
+//    }
+//    fout.close();
+
+//    ofstream fout;
+//    fout.open("../res/dist.txt", ios::out);
+//    for (int x = 0; x < m_width; x++) {
+//        fout << "x = " << x << endl;
+//        for (int z = 0; z < m_depth; z++)
+//        {fout << scientific << setprecision(3) << setw(5) << setfill('0') << (float)z << " "; }
+//        fout << endl;
+//        for (int y = 0; y < m_height; y++) {
+//
+//            for (int z = 0 ; z < m_depth; z++) {
+//                fout << scientific << setprecision(3) << setw(5) << setfill('0') << phi[this->Index(z, y, x)] << " ";
+//            }
+//            fout << endl;
+//        }
+//        fout << endl;
+//    }
+//    fout.close();
 }
 
 dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask,
                              int i, int j, int k, const Mat4 &T_mat, int &weight) {
     auto idx = Index(i, j, k);
-    auto ref_coord_cur = coord[idx];
-    ref_coord_cur = T_mat * ref_coord_cur;
-    dtype z = ref_coord_cur(2);
-    dtype x = ref_coord_cur(0), y = ref_coord_cur(1);
+    auto cur_coord = coord[idx];        // coordinate in current frame
+    cur_coord = T_mat * cur_coord;
+    dtype z = cur_coord(2);
+    dtype x = cur_coord(0), y = cur_coord(1);
     int ux = round(m_fx * x / z + m_cx);
     int uy = round(m_fy * y / z + m_cy);
     // the projection is out of the image scope (or ROI), so this 3D point must lie in the exterior of the object
@@ -239,6 +273,61 @@ dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask
         return 1.;
     else
         return phi_val / m_delta;
+}
+
+Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image, const cv::Mat &ref_mask,
+                         const cv::Mat &cur_mask, dtype resolution,
+                         int max_num_iteration) {
+    this->Init(ref_depth_image, ref_mask, resolution);
+
+    Vec6 twist;
+    twist << 0, 0, 0, 0, 0, 0;
+    while (max_num_iteration--) {
+        // todo: parallelization
+        dtype err = 0;
+        Eigen::Matrix<dtype, 6, 6> A;
+        A.setZero();
+        Vec6 b;
+        b.setZero();
+        Mat4 T_mat = SE3::exp(twist).matrix();
+        for (int i = 0; i < m_depth; i++) {
+            for (int j = 0; j < m_height; j++) {
+                for (int k = 0; k < m_width; k++) {
+                }
+            }
+        }
+    }
+
+}
+
+bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient) {
+    auto idx = Index(i, j, k);
+    Vec3 dphi_X;                            // derivative of phi w.r.t X
+    vector<vector<int>> dirs{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    for (int index = 0; index < 3; index++) {
+        dtype post_phi = phi[Index(i + dirs[index][0], j + dirs[index][1], k + dirs[index][2])];
+        dtype pre_phi = phi[Index(i - dirs[index][0], j - dirs[index][0], k - dirs[index][2])];
+        dtype diff = post_phi - pre_phi;
+        diff /= 2;
+        // if the difference is exactly 1, we regard this voxel as beam region and set the gradient as  0
+        if (abs(diff) == 1) {
+            gradient.setZero();
+            return false;
+        }
+        dphi_X(index) = diff;
+    }
+    auto ref_coord = coord[idx];            // coordinate in reference frame
+    Eigen::Matrix<dtype, 3, 6> dX_twist;    // derivative of X w.r.t. twist.
+    dX_twist.leftCols(3).setIdentity();
+    Vec4 cur_coord = T_mat * ref_coord;     // coordinate in current frame
+    Mat3 cur_coord_hat;
+    cur_coord_hat << 0, -cur_coord(2), cur_coord(1),
+                    cur_coord(2), 0, -cur_coord(0),
+                    -cur_coord(1), cur_coord(0), 0;
+    dX_twist.rightCols(3) = -cur_coord_hat;
+
+    gradient = dX_twist.transpose() * dphi_X;
+    return true;
 }
 
 void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi) {
