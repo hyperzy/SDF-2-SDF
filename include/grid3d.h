@@ -107,7 +107,7 @@ public:
      * @return phi value
      */
     dtype computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask, int i, int j, int k,
-                           const Mat4 &T_mat, int &weight);
+                           const Mat4 &T_mat, dtype &weight);
 
 
     /**
@@ -118,12 +118,14 @@ public:
      * @param cur_mask
      * @param resolution
      * @param max_num_iteration
+     * @param time_step
      * @return Twist of 6 DoF.
      */
     Vec6 estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image,
                        const cv::Mat &ref_mask, const cv::Mat &cur_mask,
                        dtype resolution,
-                       int max_num_iteration);
+                       int max_num_iteration,
+                       dtype time_step);
 
     /**
      * @brief Computing the gradient of phi val w.r.t. twist.

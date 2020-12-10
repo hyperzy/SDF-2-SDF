@@ -177,7 +177,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
     m_max_coord(0) = m_1_fx * (ux_max - m_cx) * z_max;
     m_max_coord(1) = m_1_fy * (uy_max - m_cy) * z_max;
 
-    cout << "max coord before padding: " << m_max_coord << endl;
+//    cout << "max coord before padding: " << m_max_coord << endl;
 
     m_min_coord -= Vec3(1., 1., 1.) * resolution * m_padding_size;
     m_max_coord += Vec3(1., 1., 1.) * resolution * m_padding_size;
@@ -185,7 +185,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
     m_height = ceil((m_max_coord(1) - m_min_coord(1)) / resolution) + 1;
     m_width = ceil((m_max_coord(0) - m_min_coord(0)) / resolution) + 1;
     m_max_coord = m_min_coord + Vec3(m_width, m_height, m_depth) * resolution;
-    cout << "max coord after padding" << m_max_coord << endl;
+//    cout << "max coord after padding" << m_max_coord << endl;
     this->Grid3d::Init();
     m_weight.resize(phi.size(), 0);
     // compute truncated signed distance value (level set value)
@@ -209,7 +209,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
                 else
                     phi[idx] = phi_val / m_delta;
                 if (phi_val > -m_eta)
-                    m_weight[idx] = 1;
+                    m_weight[idx] = 1.;
             }
         }
     }
@@ -250,8 +250,9 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
 //    fout.close();
 }
 
+#include <opencv2/highgui.hpp>
 dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask,
-                             int i, int j, int k, const Mat4 &T_mat, int &weight) {
+                             int i, int j, int k, const Mat4 &T_mat, dtype &weight) {
     auto idx = Index(i, j, k);
     auto cur_coord = coord[idx];        // coordinate in current frame
     cur_coord = T_mat * cur_coord;
@@ -260,12 +261,12 @@ dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask
     int ux = round(m_fx * x / z + m_cx);
     int uy = round(m_fy * y / z + m_cy);
     // the projection is out of the image scope (or ROI), so this 3D point must lie in the exterior of the object
-    if (ux < 0 || ux >= m_width || uy < 0 || uy >= m_height || !mask.at<uchar>(uy, ux)) {
-        weight = 0;
-        return 0;
+    if (ux < 0 || ux >= mask.cols || uy < 0 || uy >= mask.rows || !mask.at<uchar>(uy, ux)) {
+        weight = 1.;
+        return 1.;
     }
     dtype phi_val = cur_depth_image.at<dtype>(uy, ux) - z;
-    weight = phi_val > -m_eta ? 1 : 0;
+    weight = phi_val > -m_eta ? 1. : 0;
     if (phi_val <= -m_delta) {
         return -1.;
     }
@@ -273,31 +274,6 @@ dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask
         return 1.;
     else
         return phi_val / m_delta;
-}
-
-Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image, const cv::Mat &ref_mask,
-                         const cv::Mat &cur_mask, dtype resolution,
-                         int max_num_iteration) {
-    this->Init(ref_depth_image, ref_mask, resolution);
-
-    Vec6 twist;
-    twist << 0, 0, 0, 0, 0, 0;
-    while (max_num_iteration--) {
-        // todo: parallelization
-        dtype err = 0;
-        Eigen::Matrix<dtype, 6, 6> A;
-        A.setZero();
-        Vec6 b;
-        b.setZero();
-        Mat4 T_mat = SE3::exp(twist).matrix();
-        for (int i = 0; i < m_depth; i++) {
-            for (int j = 0; j < m_height; j++) {
-                for (int k = 0; k < m_width; k++) {
-                }
-            }
-        }
-    }
-
 }
 
 bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient) {
@@ -316,18 +292,77 @@ bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradien
         }
         dphi_X(index) = diff;
     }
+    if (!dphi_X.any()) {    // zero gradient means X locates far exterior of the object.
+        gradient.setZero();
+        return false;
+    }
     auto ref_coord = coord[idx];            // coordinate in reference frame
     Eigen::Matrix<dtype, 3, 6> dX_twist;    // derivative of X w.r.t. twist.
     dX_twist.leftCols(3).setIdentity();
     Vec4 cur_coord = T_mat * ref_coord;     // coordinate in current frame
     Mat3 cur_coord_hat;
     cur_coord_hat << 0, -cur_coord(2), cur_coord(1),
-                    cur_coord(2), 0, -cur_coord(0),
-                    -cur_coord(1), cur_coord(0), 0;
+            cur_coord(2), 0, -cur_coord(0),
+            -cur_coord(1), cur_coord(0), 0;
     dX_twist.rightCols(3) = -cur_coord_hat;
 
     gradient = dX_twist.transpose() * dphi_X;
     return true;
+}
+
+Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image, const cv::Mat &ref_mask,
+                         const cv::Mat &cur_mask, dtype resolution,
+                         int max_num_iteration,
+                         dtype time_step) {
+    this->Init(ref_depth_image, ref_mask, resolution);
+
+    Vec6 twist;
+    twist << 0, 0, 0, 0, 0, 0;
+    int iter_count = 0;
+    while (iter_count++ < max_num_iteration) {
+        cout << "Iteration " << iter_count << ": \n";
+        // todo: parallelization
+        dtype err = 0;
+        Eigen::Matrix<dtype, 6, 6> A;
+        A.setZero();
+        Vec6 b;
+        b.setZero();
+        Mat4 T_mat = SE3::exp(twist).matrix();
+        // start from 1 and end at size - 1 for correctly computing central difference
+        for (int i = 1; i < m_depth - 1; i++) {
+            for (int j = 1; j < m_height - 1; j++) {
+                for (int k = 1; k < m_width - 1; k++) {
+                    dtype cur_weight, cur_phi;
+                    cur_phi = computePhiWeight(cur_depth_image, cur_mask, i, j, k, T_mat, cur_weight);
+                    // todo: error computation can be eliminated when process
+                    auto idx = Index(i, j, k);
+                    dtype ref_weight = m_weight[idx];
+                    dtype ref_phi = phi[idx];
+                    if (cur_weight == 0) {  // no contribution to gradient
+                        err += pow(ref_weight * ref_phi, 2);
+                        continue;
+                    }
+                    else {
+                        err += pow(ref_weight * ref_phi - cur_weight * cur_phi, 2);
+                    }
+                    Vec6 dphi_twist;    // derivative of phi w.r.t. twist
+                    if (!computeGradient(T_mat, i, j, k, dphi_twist)) {     // beam region or zero gradient region
+                        continue;
+                    }
+                    auto dphi_twist_T = dphi_twist.transpose();
+                    A += dphi_twist * dphi_twist_T;
+                    b += (ref_phi * ref_weight - cur_phi + dphi_twist_T * twist) * dphi_twist;
+                }
+            }
+        }
+        cout << "A is: \n" << A << "\n";
+        cout << "Registration error is: " << err / 2 << "\n";
+        cout << "Twist is: " << twist.transpose() << "\n";
+        cout << "Transformation Matrix is: \n" << SE3::exp(twist).matrix() << "\n";
+        Vec6 approx_twist = A.inverse() * b;
+        twist += time_step * (approx_twist - twist);
+    }
+    return twist;
 }
 
 void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi) {
