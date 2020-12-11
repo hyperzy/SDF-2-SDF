@@ -321,7 +321,8 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
     int iter_count = 0;
     while (iter_count++ < max_num_iteration) {
         cout << "Iteration " << iter_count << ": \n";
-        // todo: parallelization
+        // todo: parallelization (or we can parallelize the whole process since aligning frame is a single task
+        //  and we need to do it for multiple times).
         dtype err = 0;
         Eigen::Matrix<dtype, 6, 6> A;
         A.setZero();

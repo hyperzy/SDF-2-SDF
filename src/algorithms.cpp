@@ -4,29 +4,69 @@
 
 #include "algorithms.h"
 #include "display.h"
+#include <sstream>
 
 using namespace std;
 void testAll() {
-    auto p_depth_img = std::make_shared<DepthImage>();
-    p_depth_img->loadImage("../res/Synthetic_Bunny_Circle/depth_000000.exr");
-    p_depth_img->showImage();
-    p_depth_img->loadIntrinsic("..//res/Synthetic_Bunny_Circle/intrinsic.txt");
+    int num_images = 2;
+    shared_ptr<DepthImage> p_ref, p_cur;
+    string file_name_prefix = "../res/Synthetic_Bunny_Circle/depth_";
+    string file_name_suffix = ".exr";
+    stringstream ss;
+    ss << setw(6) << setfill('0') << 0;
+    string file_name = file_name_prefix + ss.str() + file_name_suffix;
+    p_ref = make_shared<DepthImage>();
+    p_ref->loadImage(file_name);
 
-    auto tsdf = make_shared<TSDF>();
-    tsdf->setIntrinsic(p_depth_img->getIntrinsic());
-    tsdf->setDelta(0.002);
-    tsdf->setEta(.002);
-    tsdf->setPaddingSize(3);
-    dtype resolution = .002;
-    cv::Mat mask = p_depth_img->getImage() != INF;
-    tsdf->Init(p_depth_img->getImage(), mask, resolution);
+    Mat3 K;
+    K << 570.3999633789062,                   0,   320.0,
+        0,   570.3999633789062,   240.0,
+        0,                   0,       1;
+    constexpr dtype resolution = .002;
 
-    tsdf->estimateTwist(p_depth_img->getImage(), p_depth_img->getImage(), mask, mask, resolution, 50, .4);
+    vector<Vec6> twists;
+    twists.reserve(num_images);
+    twists.emplace_back(Eigen::Matrix<dtype, 6, 1>::Identity());
 
-    auto displayer = make_shared<Display>();
-    displayer->Init();
-    displayer->addAxes();
-    displayer->addIsoSurface(tsdf->phi, tsdf->getMinCoord(), tsdf->getDepth(), tsdf->getHeight(), tsdf->getWidth(), resolution);
-    displayer->startRender();
+    for (int i = 1; i < num_images; i++) {
+        p_cur = make_shared<DepthImage>();
+        ss.str("");
+        ss << setw(6) << setfill('0') << i;
+        file_name = file_name_prefix + ss.str() + file_name_suffix;
+        p_cur->loadImage(file_name);
+        // for synthetic images only
+        cv::Mat ref_mask = p_ref->getImage() != INF;
+        cv::Mat cur_mask = p_cur->getImage() != INF;
+
+        auto tsdf = make_shared<TSDF>();
+        tsdf->setIntrinsic(K);
+        tsdf->setDelta(.002);
+        tsdf->setEta(.002);
+        tsdf->setPaddingSize(3);
+
+        twists.emplace_back(tsdf->estimateTwist(p_ref->getImage(), p_cur->getImage(),
+                                                ref_mask, cur_mask,
+                                                resolution,
+                                                40,
+                                                .001));
+        p_ref = p_cur;
+    }
+
+//    auto tsdf = make_shared<TSDF>();
+//    tsdf->setIntrinsic(p_depth_img->getIntrinsic());
+//    tsdf->setDelta(0.002);
+//    tsdf->setEta(.002);
+//    tsdf->setPaddingSize(3);
+//    dtype resolution = .002;
+//    cv::Mat mask = p_depth_img->getImage() != INF;
+//    tsdf->Init(p_depth_img->getImage(), mask, resolution);
+//
+//    tsdf->estimateTwist(p_depth_img->getImage(), p_depth_img->getImage(), mask, mask, resolution, 50, .4);
+//
+//    auto displayer = make_shared<Display>();
+//    displayer->Init();
+//    displayer->addAxes();
+//    displayer->addIsoSurface(tsdf->phi, tsdf->getMinCoord(), tsdf->getDepth(), tsdf->getHeight(), tsdf->getWidth(), resolution);
+//    displayer->startRender();
 }
 
