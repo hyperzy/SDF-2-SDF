@@ -556,7 +556,17 @@ void Display::addIsoSurface(const Grid3d *grid) {
 }
 
 void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
-                            int depth, int height, int width, dtype resolution, string color) {
+                            int depth, int height, int width, dtype resolution,
+                            const string &surface_name,
+                            const string &color) {
+    if (!surface_name.empty() && surface_name != "cur" && surface_name != "ref") {
+        cerr << "wrong surface name\n";
+        exit(EXIT_FAILURE);
+    }
+    if (!surface_name.empty() && iso_surfaces.count(surface_name)) {
+        iso_surfaces[surface_name]->Modified();
+        return;
+    }
     vtkSmartPointer<vtkFloatArray> phi_arr = vtkSmartPointer<vtkFloatArray>::New();
     unsigned long total_size = depth * height * width;
     phi_arr->SetArray(const_cast<float *>(phi.data()), total_size, 1);
@@ -584,4 +594,12 @@ void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
         surface_actor->GetProperty()->SetColor(m_colors->GetColor3d(color).GetData());
 
     this->m_assembly->AddPart(surface_actor);
+    if (iso_surfaces.empty()) {
+        iso_surfaces["ref"] = vtkSmartPointer<vtkMarchingCubes>::New();
+        iso_surfaces["ref"] = isosurface;
+    }
+    else {
+        iso_surfaces["cur"] = vtkSmartPointer<vtkMarchingCubes>::New();
+        iso_surfaces["cur"] = isosurface;
+    }
 }

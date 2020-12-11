@@ -310,6 +310,7 @@ bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradien
     return true;
 }
 
+#include "display.h"
 Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image, const cv::Mat &ref_mask,
                          const cv::Mat &cur_mask, dtype resolution,
                          int max_num_iteration,
@@ -319,6 +320,16 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
     Vec6 twist;
     twist << 0, 0, 0, 0, 0, 0;
     int iter_count = 0;
+    vector<dtype> phi_cur(phi.size());
+    Mat4 T_mat = SE3::exp(twist).matrix();
+
+    auto displayer = make_shared<Display>();
+    displayer->Init();
+    displayer->addAxes();
+    displayer->addIsoSurface(phi, m_min_coord, m_depth, m_height, m_width, resolution);
+    computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
+    displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
+    displayer->startRender();
     while (iter_count++ < max_num_iteration) {
         cout << "Iteration " << iter_count << ": \n";
         // todo: parallelization (or we can parallelize the whole process since aligning frame is a single task
@@ -328,7 +339,7 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
         A.setZero();
         Vec6 b;
         b.setZero();
-        Mat4 T_mat = SE3::exp(twist).matrix();
+        T_mat = SE3::exp(twist).matrix();
         // start from 1 and end at size - 1 for correctly computing central difference
         for (int i = 1; i < m_depth - 1; i++) {
             for (int j = 1; j < m_height - 1; j++) {
@@ -366,16 +377,15 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
     return twist;
 }
 
-void TSDF::computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi) {
+void TSDF::computeAnotherPhi(const cv::Mat &depth_image, const cv::Mat &mask, std::vector<dtype> &phi,
+                             const Mat4 &T_mat) {
     phi.resize(this->phi.size());
     for (int i = 0; i < m_depth; i++) {
         for (int j = 0; j < m_height; j++) {
             for (int k = 0; k < m_width; k++) {
                 auto idx = this->Index(i, j, k);
-                dtype z = coord[idx][2];
-                dtype ux = round(coord[idx][0] * m_fx / z + m_cx);
-                dtype uy = round(coord[idx][1] * m_fy / z + m_cy);
-                phi[idx] = depth_image.at<dtype>(uy, ux) - coord[idx][2];
+                dtype weight;
+                phi[idx] = computePhiWeight(depth_image, mask, i, j, k, T_mat, weight);
             }
         }
     }

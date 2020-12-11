@@ -16,6 +16,8 @@
 #include <vtkAssembly.h>
 #include <vtkNamedColors.h>
 #include <vtkAxesActor.h>
+#include <vtkMarchingCubes.h>
+#include <unordered_map>    // iso_surfaces
 
 class Display {
     // should be const
@@ -28,6 +30,7 @@ class Display {
     vtkSmartPointer<vtkRenderWindow> m_renw;
     vtkSmartPointer<vtkRenderWindowInteractor> m_iren;
     vtkSmartPointer<vtkAssembly> m_assembly;
+    std::unordered_map<std::string, vtkSmartPointer<vtkMarchingCubes>> iso_surfaces;
 public:
     std::vector<ImageBase *> all_cams;
     Display(const std::vector<ImageBase *> &all_cams);
@@ -38,7 +41,9 @@ public:
     void addBoundingBox(const std::vector<Vec3> &bound_coord);
     void addIsoSurface(const Grid3d *grid);
     void addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
-                       int depth, int height, int width, dtype resolution, std::string color="");
+                       int depth, int height, int width, dtype resolution,
+                       const std::string &surface_name = "",
+                       const std::string &color="");
     void addAxes();
     void startRender();
 

@@ -138,6 +138,6 @@ public:
      */
     bool computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient);
 
-    // used for testing some scenarios
-    void computeAnotherPhi(const cv::Mat &depth_image, std::vector<dtype> &phi);};
+    void computeAnotherPhi(const cv::Mat &depth_image, const cv::Mat &mask, std::vector<dtype> &phi, const Mat4 &T_mat);
+};
 #endif //SDF_2_SDF_GRID3D_H
