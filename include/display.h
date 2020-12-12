@@ -17,7 +17,9 @@
 #include <vtkNamedColors.h>
 #include <vtkAxesActor.h>
 #include <vtkMarchingCubes.h>
+#include <vtkCamera.h>
 #include <unordered_map>    // iso_surfaces
+#include <thread>       // eventloop
 
 class Display {
     // should be const
@@ -30,7 +32,8 @@ class Display {
     vtkSmartPointer<vtkRenderWindow> m_renw;
     vtkSmartPointer<vtkRenderWindowInteractor> m_iren;
     vtkSmartPointer<vtkAssembly> m_assembly;
-    std::unordered_map<std::string, vtkSmartPointer<vtkMarchingCubes>> iso_surfaces;
+    std::unordered_map<std::string, vtkMarchingCubes *> iso_surfaces;
+
 public:
     std::vector<ImageBase *> all_cams;
     Display(const std::vector<ImageBase *> &all_cams);
@@ -46,6 +49,9 @@ public:
                        const std::string &color="");
     void addAxes();
     void startRender();
+    void render();
+    void close();
+    void eventLoop(TSDF *tsdf);
 
 };
 

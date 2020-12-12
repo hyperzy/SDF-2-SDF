@@ -14,6 +14,7 @@
 #include <vector>
 #include <Eigen/Eigen>
 #include <sophus/se3.hpp>
+#include <memory>
 
 //#include <Eigen/V>
 #include <vtkFloatArray.h>

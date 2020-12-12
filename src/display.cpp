@@ -44,6 +44,7 @@ VTK_MODULE_INIT(vtkRenderingFreeType);
 
 using namespace std;
 
+
 vtkSmartPointer<vtkActor> Construct_lineActor(const Vec3 &p1, const Vec3 &p2)
 {
     vtkSmartPointer<vtkNamedColors> colors = vtkSmartPointer<vtkNamedColors>::New();
@@ -491,6 +492,12 @@ void Display::Init() {
     this->m_iren = vtkSmartPointer<vtkRenderWindowInteractor>::New();
     this->m_colors = vtkSmartPointer<vtkNamedColors>::New();
     this->m_assembly = vtkSmartPointer<vtkAssembly>::New();
+
+    this->m_ren->AddActor(this->m_assembly);
+    this->m_ren->SetBackground(this->m_colors->GetColor3d("Silver").GetData());
+    this->m_renw->AddRenderer(this->m_ren);
+    this->m_renw->SetSize(800, 800);
+    this->m_iren->SetRenderWindow(this->m_renw);
 }
 
 void Display::addCamera(int idx) {
@@ -538,21 +545,50 @@ void Display::addAxes() {
     this->m_axes->GetYAxisCaptionActor2D()->GetCaptionTextProperty()->SetFontSize(0.1);
     this->m_axes->GetZAxisCaptionActor2D()->GetCaptionTextProperty()->SetFontSize(0.1);
     this->m_is_axes = true;
+    if (this->m_is_axes) this->m_ren->AddActor(this->m_axes);
 }
 
 void Display::startRender() {
-    this->m_ren->AddActor(this->m_assembly);
-    if (this->m_is_axes) this->m_ren->AddActor(this->m_axes);
-    this->m_ren->SetBackground(this->m_colors->GetColor3d("Silver").GetData());
-    this->m_renw->AddRenderer(this->m_ren);
-    this->m_renw->SetSize(800, 800);
-    this->m_iren->SetRenderWindow(this->m_renw);
+    m_iren->Initialize();
+
     this->m_renw->Render();
 
-    this->m_iren->Start();
+    m_ren->GetActiveCamera()->SetViewUp(0, -1, 0);
+    m_ren->GetActiveCamera()->SetPosition(0, 0, -.5);
+
+    m_iren->Start();
+}
+
+void Display::render() {
+    m_renw->Render();
+}
+
+void Display::close() {
+
 }
 
 void Display::addIsoSurface(const Grid3d *grid) {
+}
+
+class vtkTimerCallback: public vtkCommand {
+private:
+    int m_trigger_count = 0;
+public:
+    TSDF *tsdf;
+    vtkTimerCallback() {}
+    static vtkTimerCallback *New() {
+        vtkTimerCallback *cb = new vtkTimerCallback;
+        return cb;
+    }
+    void Execute(vtkObject* caller, unsigned long eventId, void* vtkNotUsed(callData)) {
+        auto iren = dynamic_cast<vtkRenderWindowInteractor *>(caller);
+        if (m_trigger_count != 0) {
+
+        }
+    }
+};
+void Display::eventLoop(TSDF *tsdf) {
+
 }
 
 void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
@@ -595,11 +631,11 @@ void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
 
     this->m_assembly->AddPart(surface_actor);
     if (iso_surfaces.empty()) {
-        iso_surfaces["ref"] = vtkSmartPointer<vtkMarchingCubes>::New();
+//        iso_surfaces["ref"] = vtkSmartPointer<vtkMarchingCubes>::New();
         iso_surfaces["ref"] = isosurface;
     }
     else {
-        iso_surfaces["cur"] = vtkSmartPointer<vtkMarchingCubes>::New();
+//        iso_surfaces["cur"] = vtkSmartPointer<vtkMarchingCubes>::New();
         iso_surfaces["cur"] = isosurface;
     }
 }

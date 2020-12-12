@@ -278,11 +278,11 @@ dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask
 
 bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient) {
     auto idx = Index(i, j, k);
-    Vec3 dphi_X;                            // derivative of phi w.r.t X
+    Vec3 dphi_X;                            // derivative of phi w.r.t. X
     vector<vector<int>> dirs{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     for (int index = 0; index < 3; index++) {
         dtype post_phi = phi[Index(i + dirs[index][0], j + dirs[index][1], k + dirs[index][2])];
-        dtype pre_phi = phi[Index(i - dirs[index][0], j - dirs[index][0], k - dirs[index][2])];
+        dtype pre_phi = phi[Index(i - dirs[index][0], j - dirs[index][1], k - dirs[index][2])];
         dtype diff = post_phi - pre_phi;
         diff /= 2;
         // if the difference is exactly 1, we regard this voxel as beam region and set the gradient as  0
@@ -290,7 +290,7 @@ bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradien
             gradient.setZero();
             return false;
         }
-        dphi_X(index) = diff;
+        dphi_X(2 - index) = diff;
     }
     if (!dphi_X.any()) {    // zero gradient means X locates far exterior of the object.
         gradient.setZero();
@@ -330,6 +330,11 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
     computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
     displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
     displayer->startRender();
+
+//    phi_cur.assign(phi_cur.size(), 0);
+//    displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
+//    displayer->startRender();
+//    displayer->close();
     while (iter_count++ < max_num_iteration) {
         cout << "Iteration " << iter_count << ": \n";
         // todo: parallelization (or we can parallelize the whole process since aligning frame is a single task
@@ -373,6 +378,9 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
         cout << "Transformation Matrix is: \n" << SE3::exp(twist).matrix() << "\n";
         Vec6 approx_twist = A.inverse() * b;
         twist += time_step * (approx_twist - twist);
+        computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
+        displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
+        displayer->render();
     }
     return twist;
 }
