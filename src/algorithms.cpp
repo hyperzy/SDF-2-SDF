@@ -8,7 +8,7 @@
 
 using namespace std;
 void testAll() {
-    int num_images = 2;
+    int num_images = 30;
     shared_ptr<DepthImage> p_ref, p_cur;
     string file_name_prefix = "../res/Synthetic_Bunny_Circle/depth_";
     string file_name_suffix = ".exr";
@@ -43,13 +43,28 @@ void testAll() {
         tsdf->setDelta(.002);
         tsdf->setEta(.002);
         tsdf->setPaddingSize(3);
-
+//        tsdf->setRender();
+        auto start = std::chrono::high_resolution_clock::now();
         twists.emplace_back(tsdf->estimateTwist(p_ref->getImage(), p_cur->getImage(),
                                                 ref_mask, cur_mask,
                                                 resolution,
-                                                40,
-                                                .001));
+                                                15,
+                                                .002,
+                                                true));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        cout << "duration: " << duration.count() << "ms" << endl;
         p_ref = p_cur;
+    }
+
+    vector<Mat4> T_mats(num_images);
+    T_mats[0] = Mat4::Identity();
+    for (int i = 1; i < num_images; i++) {
+        T_mats[i] = SE3::exp(twists[i]).matrix() * T_mats[i - 1];
+    }
+    for (int i = 0; i < num_images; i++) {
+        cout << "Transformation Matrix " << i << ":\n";
+        cout << T_mats[i].inverse() << "\n";
     }
 
 //    auto tsdf = make_shared<TSDF>();

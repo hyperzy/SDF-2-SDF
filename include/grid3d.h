@@ -72,12 +72,16 @@ inline unsigned long Index(int i, int j, int k, int height, int width) {
     return i * width * height + j * width + k;
 }
 
+// contain some critical variables for parallel processing TSDF volume
+struct VarsVolumeParallel;
+
 class TSDF: public Grid3d {
     dtype m_delta = 0;
     dtype m_eta = 0;
     dtype m_fx, m_fy, m_cx, m_cy;
     dtype m_1_fx, m_1_fy;
     int m_padding_size = 3;
+    bool m_is_render = false;
 public:
     TSDF();
     void setDelta(dtype delta);
@@ -88,6 +92,7 @@ public:
     void setPaddingSize(int size);
     Vec3 getMinCoord() const;
     std::vector<dtype> m_weight;
+    void setRender() {m_is_render = true;}
     /**
      * @brief Determine the volume with respect to the reference depth image.
      * @param depth_image Input reference depth image.
@@ -108,24 +113,8 @@ public:
      */
     dtype computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask, int i, int j, int k,
                            const Mat4 &T_mat, dtype &weight);
+    dtype computePhiWeight(const VarsVolumeParallel &client_data, int i, int j, int k, dtype &weight);
 
-
-    /**
-     * @brief Estimating the twist from refrence frame to
-     * @param ref_depth_image
-     * @param cur_depth_image
-     * @param ref_mask
-     * @param cur_mask
-     * @param resolution
-     * @param max_num_iteration
-     * @param time_step
-     * @return Twist of 6 DoF.
-     */
-    Vec6 estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image,
-                       const cv::Mat &ref_mask, const cv::Mat &cur_mask,
-                       dtype resolution,
-                       int max_num_iteration,
-                       dtype time_step);
 
     /**
      * @brief Computing the gradient of phi val w.r.t. twist.
@@ -137,7 +126,46 @@ public:
      * @return True if valid gradient exists else false.
      */
     bool computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient);
+    /**
+     * @brief Method for parallel computing.
+     * @param T_mat
+     * @param i
+     * @param j
+     * @param k
+     * @param volume_height
+     * @param volume_width
+     * @param gradient
+     * @return
+     */
+    bool computeGradient(const VarsVolumeParallel &client_data, int i, int j, int k, Vec6 &gradient);
+
+    /**
+     * @brief Estimating the twist from refrence frame to
+     * @param ref_depth_image
+     * @param cur_depth_image
+     * @param ref_mask
+     * @param cur_mask
+     * @param resolution
+     * @param max_num_iteration
+     * @param time_step
+     * @param is_parallel Determine if use multi-threads processing
+     * @param num_threads The default number of threads if 8. -1 for maximum feasible number. Must be non-negative
+     *                     except -1.
+     * @return Twist of 6 DoF.
+     */
+    Vec6 estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image,
+                       const cv::Mat &ref_mask, const cv::Mat &cur_mask,
+                       dtype resolution,
+                       int max_num_iteration,
+                       dtype time_step,
+                       bool is_parallel = false,
+                       int num_threads = 8);
+
 
     void computeAnotherPhi(const cv::Mat &depth_image, const cv::Mat &mask, std::vector<dtype> &phi, const Mat4 &T_mat);
+
+    void parallelIterateVolume(const VarsVolumeParallel &client_data,
+                               int i_start, int i_end,
+                               dtype &err, Eigen::Matrix<dtype, 6, 6> &A, Vec6 &b);
 };
 #endif //SDF_2_SDF_GRID3D_H

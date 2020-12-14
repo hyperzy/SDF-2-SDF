@@ -47,6 +47,9 @@ public:
                        int depth, int height, int width, dtype resolution,
                        const std::string &surface_name = "",
                        const std::string &color="");
+    void updateIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
+                          int depth, int height, int width, dtype resolution,
+                          const std::string &surface_name, const std::string  &color = "Silver");
     void addAxes();
     void startRender();
     void render();

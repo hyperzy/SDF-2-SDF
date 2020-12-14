@@ -550,13 +550,11 @@ void Display::addAxes() {
 
 void Display::startRender() {
     m_iren->Initialize();
-
-    this->m_renw->Render();
-
     m_ren->GetActiveCamera()->SetViewUp(0, -1, 0);
     m_ren->GetActiveCamera()->SetPosition(0, 0, -.5);
+    this->m_renw->Render();
 
-    m_iren->Start();
+//    m_iren->Start();
 }
 
 void Display::render() {
@@ -564,7 +562,9 @@ void Display::render() {
 }
 
 void Display::close() {
-
+    m_iren->GetRenderWindow()->Finalize();
+    m_iren->TerminateApp();
+    m_renw = nullptr;
 }
 
 void Display::addIsoSurface(const Grid3d *grid) {
@@ -638,4 +638,9 @@ void Display::addIsoSurface(const std::vector<float> &phi, const Vec3 &origin,
 //        iso_surfaces["cur"] = vtkSmartPointer<vtkMarchingCubes>::New();
         iso_surfaces["cur"] = isosurface;
     }
+}
+
+void Display::updateIsoSurface(const std::vector<float> &phi, const Vec3 &origin, int depth, int height, int width,
+                               dtype resolution, const std::string &surface_name, const std::string &color) {
+    addIsoSurface(phi, origin, depth, height, width, resolution, surface_name, color);
 }

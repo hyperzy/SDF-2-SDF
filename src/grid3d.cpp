@@ -104,6 +104,30 @@ void Grid3d::initCoord(Vec3 origin, dtype resolution) {
     }
 }
 
+
+struct VarsVolumeParallel {
+    cv::Mat cur_depth_image, cur_mask;
+    Mat4 T_mat;
+    int volume_height, volume_width;  // volume height and width
+    dtype delta, eta;
+    dtype fx, fy, cx, cy;
+    VarsVolumeParallel(const cv::Mat &depth_image, const cv::Mat &mask, const Mat4 &T_mat,
+                       int volume_height, int volume_width, dtype delta, dtype eta, dtype fx, dtype fy, dtype cx, dtype cy):
+            volume_height(volume_height), volume_width(volume_width), delta(delta), eta(eta), fx(fx), fy(fy), cx(cx), cy(cy) {
+        this->T_mat = T_mat;
+        cur_depth_image = depth_image.clone();
+        cur_mask = mask.clone();
+    }
+    VarsVolumeParallel(const VarsVolumeParallel &tsdf) {
+        cur_depth_image = tsdf.cur_depth_image.clone();
+        cur_mask = tsdf.cur_depth_image.clone();
+        T_mat = tsdf.T_mat;
+        volume_height = tsdf.volume_height; volume_width = tsdf.volume_width;
+        delta = tsdf.delta; eta = tsdf.eta;
+        fx = tsdf.fx; fy = tsdf.fy; cx = tsdf.cx; cy = tsdf.cy;
+    }
+};
+
 TSDF::TSDF() {}
 
 void TSDF::setDelta(dtype delta) {
@@ -250,7 +274,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
 //    fout.close();
 }
 
-#include <opencv2/highgui.hpp>
+
 dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask,
                              int i, int j, int k, const Mat4 &T_mat, dtype &weight) {
     auto idx = Index(i, j, k);
@@ -276,10 +300,40 @@ dtype TSDF::computePhiWeight(const cv::Mat &cur_depth_image, const cv::Mat &mask
         return phi_val / m_delta;
 }
 
+dtype TSDF::computePhiWeight(const VarsVolumeParallel &client_data, int i, int j, int k, dtype &weight) {
+    auto &height = client_data.volume_height, &width = client_data.volume_width;
+    auto &T_mat = client_data.T_mat;
+    auto &mask = client_data.cur_mask, &cur_depth_image = client_data.cur_depth_image;
+    auto &eta = client_data.eta, &delta = client_data.delta;
+    auto &fx = client_data.fx, &fy = client_data.fy, &cx = client_data.cx, &cy = client_data.cy;
+
+    auto idx = ::Index(i, j, k, height, width);
+    auto cur_coord = coord[idx];        // coordinate in current frame, vector coord is a shared member variable.
+    cur_coord = T_mat * cur_coord;
+    dtype z = cur_coord(2);
+    dtype x = cur_coord(0), y = cur_coord(1);
+    int ux = round(fx * x / z + cx);
+    int uy = round(fy * y / z + cy);
+    // the projection is out of the image scope (or ROI), so this 3D point must lie in the exterior of the object
+    if (ux < 0 || ux >= mask.cols || uy < 0 || uy >= mask.rows || !mask.at<uchar>(uy, ux)) {
+        weight = 1.;
+        return 1.;
+    }
+    dtype phi_val = cur_depth_image.at<dtype>(uy, ux) - z;
+    weight = phi_val > -eta ? 1. : 0;
+    if (phi_val <= -delta) {
+        return -1.;
+    }
+    else if (phi_val > delta)
+        return 1.;
+    else
+        return phi_val / delta;
+}
+
 bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradient) {
     auto idx = Index(i, j, k);
     Vec3 dphi_X;                            // derivative of phi w.r.t. X
-    vector<vector<int>> dirs{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    vector<vector<int>> dirs{{0, 0, 1}, {0, 1, 0}, {1, 0, 0}};
     for (int index = 0; index < 3; index++) {
         dtype post_phi = phi[Index(i + dirs[index][0], j + dirs[index][1], k + dirs[index][2])];
         dtype pre_phi = phi[Index(i - dirs[index][0], j - dirs[index][1], k - dirs[index][2])];
@@ -290,7 +344,46 @@ bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradien
             gradient.setZero();
             return false;
         }
-        dphi_X(2 - index) = diff;
+        dphi_X(index) = diff;
+    }
+    if (!dphi_X.any()) {    // zero gradient means X locates far exterior of the object.
+        gradient.setZero();
+        return false;
+    }
+    auto ref_coord = coord[idx];            // coordinate in reference frame
+    Eigen::Matrix<dtype, 3, 6> dX_twist;    // derivative of X w.r.t. twist.
+    dX_twist.leftCols(3).setIdentity();
+    Vec4 cur_coord = T_mat * ref_coord;     // coordinate in current frame
+    Mat3 cur_coord_hat;
+    cur_coord_hat << 0, -cur_coord(2), cur_coord(1),
+            cur_coord(2), 0, -cur_coord(0),
+            -cur_coord(1), cur_coord(0), 0;
+    dX_twist.rightCols(3) = -cur_coord_hat;
+
+    gradient = dX_twist.transpose() * dphi_X;
+    return true;
+}
+
+bool TSDF::computeGradient(const VarsVolumeParallel &client_data, int i, int j, int k, Vec6 &gradient) {
+    auto &height = client_data.volume_height, &width = client_data.volume_width;
+    auto &T_mat = client_data.T_mat;
+
+    auto idx = ::Index(i, j, k, height, width);
+    Vec3 dphi_X;                            // derivative of phi w.r.t. X
+    vector<vector<int>> dirs{{0, 0, 1}, {0, 1, 0}, {1, 0, 0}};
+    for (int index = 0; index < 3; index++) {
+        dtype post_phi = phi[::Index(i + dirs[index][0], j + dirs[index][1], k + dirs[index][2],
+                                    height, width)];
+        dtype pre_phi = phi[::Index(i - dirs[index][0], j - dirs[index][1], k - dirs[index][2],
+                                    height, width)];
+        dtype diff = post_phi - pre_phi;
+        diff /= 2;
+        // if the difference is exactly 1, we regard this voxel as beam region and set the gradient as  0
+        if (abs(diff) == 1) {
+            gradient.setZero();
+            return false;
+        }
+        dphi_X(index) = diff;
     }
     if (!dphi_X.any()) {    // zero gradient means X locates far exterior of the object.
         gradient.setZero();
@@ -314,7 +407,8 @@ bool TSDF::computeGradient(const Mat4 &T_mat, int i, int j, int k, Vec6 &gradien
 Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_depth_image, const cv::Mat &ref_mask,
                          const cv::Mat &cur_mask, dtype resolution,
                          int max_num_iteration,
-                         dtype time_step) {
+                         dtype time_step,
+                         bool is_parallel, int num_threads) {
     this->Init(ref_depth_image, ref_mask, resolution);
 
     Vec6 twist;
@@ -324,63 +418,112 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
     Mat4 T_mat = SE3::exp(twist).matrix();
 
     auto displayer = make_shared<Display>();
-    displayer->Init();
-    displayer->addAxes();
-    displayer->addIsoSurface(phi, m_min_coord, m_depth, m_height, m_width, resolution);
-    computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
-    displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
-    displayer->startRender();
+    if (m_is_render) {
+        displayer->Init();
+        displayer->addAxes();
+        displayer->addIsoSurface(phi, m_min_coord, m_depth, m_height, m_width, resolution);
+        computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
+        displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
+        displayer->startRender();
+    }
 
-//    phi_cur.assign(phi_cur.size(), 0);
-//    displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
-//    displayer->startRender();
-//    displayer->close();
     while (iter_count++ < max_num_iteration) {
         cout << "Iteration " << iter_count << ": \n";
-        // todo: parallelization (or we can parallelize the whole process since aligning frame is a single task
-        //  and we need to do it for multiple times).
         dtype err = 0;
         Eigen::Matrix<dtype, 6, 6> A;
         A.setZero();
         Vec6 b;
         b.setZero();
         T_mat = SE3::exp(twist).matrix();
-        // start from 1 and end at size - 1 for correctly computing central difference
-        for (int i = 1; i < m_depth - 1; i++) {
-            for (int j = 1; j < m_height - 1; j++) {
-                for (int k = 1; k < m_width - 1; k++) {
-                    dtype cur_weight, cur_phi;
-                    cur_phi = computePhiWeight(cur_depth_image, cur_mask, i, j, k, T_mat, cur_weight);
-                    // todo: error computation can be eliminated when process
-                    auto idx = Index(i, j, k);
-                    dtype ref_weight = m_weight[idx];
-                    dtype ref_phi = phi[idx];
-                    if (cur_weight == 0) {  // no contribution to gradient
-                        err += pow(ref_weight * ref_phi, 2);
-                        continue;
+        if (is_parallel) {
+            if (num_threads == -1) {
+                num_threads = thread::hardware_concurrency();
+            }
+            else if (num_threads <= 0) {
+                cerr << "wrong parameter: number of threads.\n";
+                exit(EXIT_FAILURE);
+            }
+//            cout << num_threads << " threads are computing parallelly." << endl;
+            vector<std::thread> threads;
+            threads.reserve(num_threads);
+            int num_slices_for_each_thread = m_depth / num_threads;
+            int remaining_slices = m_depth % num_threads;
+            int i_start = 0, offset = 0;      // assign one more slice to the first "remaining_slices"
+            VarsVolumeParallel client_data(cur_depth_image, cur_mask, T_mat, m_height, m_width, m_delta,
+                                           m_eta, m_fx, m_fy, m_cx, m_cy);
+            vector<Eigen::Matrix<dtype, 6, 6>> As(num_threads);
+            for_each(As.begin(), As.end(), [](Eigen::Matrix<dtype, 6, 6> &a) {a.setZero();});
+            vector<Vec6> bs(num_threads);
+            for_each(bs.begin(), bs.end(), [](Vec6 &b_) {b_.setZero();});
+            vector<dtype> errs(num_threads, 0);
+            for (int i = 0; i < num_threads; i++) {
+                if (remaining_slices-- > 0) {
+                    offset = 1;
+                }
+                else {
+                    offset = 0;
+                }
+                int i_end = i_start + num_slices_for_each_thread + offset;
+                threads.emplace_back(thread(&TSDF::parallelIterateVolume, this, client_data,
+                                            i_start, i_end, std::ref(errs[i]), std::ref(As[i]), std::ref(bs[i])));
+                i_start = i_end;
+            }
+            for (int i = 0; i < num_threads; i++) {
+                threads[i].join();
+            }
+            // results reduction
+            for (const auto &e: As) {
+                A += e;
+            }
+            for (const auto &e: bs) {
+                b += e;
+            }
+            for (const auto &e: errs) {
+                err += e;
+            }
+        }
+        else {
+            // start from 1 and end at size - 1 for correctly computing central difference
+            for (int i = 1; i < m_depth - 1; i++) {
+                for (int j = 1; j < m_height - 1; j++) {
+                    for (int k = 1; k < m_width - 1; k++) {
+                        dtype cur_weight, cur_phi;
+                        cur_phi = computePhiWeight(cur_depth_image, cur_mask, i, j, k, T_mat, cur_weight);
+                        // todo: error computation can be eliminated when process
+                        auto idx = Index(i, j, k);
+                        dtype ref_weight = m_weight[idx];
+                        dtype ref_phi = phi[idx];
+                        if (cur_weight == 0) {  // no contribution to gradient
+                            err += pow(ref_weight * ref_phi, 2);
+                            continue;
+                        } else {
+                            err += pow(ref_weight * ref_phi - cur_weight * cur_phi, 2);
+                        }
+                        Vec6 dphi_twist;    // derivative of phi w.r.t. twist
+                        if (!computeGradient(T_mat, i, j, k, dphi_twist)) {     // beam region or zero gradient region
+                            continue;
+                        }
+                        auto dphi_twist_T = dphi_twist.transpose();
+                        A += dphi_twist * dphi_twist_T;
+                        b += (ref_phi * ref_weight - cur_phi) * dphi_twist;
                     }
-                    else {
-                        err += pow(ref_weight * ref_phi - cur_weight * cur_phi, 2);
-                    }
-                    Vec6 dphi_twist;    // derivative of phi w.r.t. twist
-                    if (!computeGradient(T_mat, i, j, k, dphi_twist)) {     // beam region or zero gradient region
-                        continue;
-                    }
-                    auto dphi_twist_T = dphi_twist.transpose();
-                    A += dphi_twist * dphi_twist_T;
-                    b += (ref_phi * ref_weight - cur_phi + dphi_twist_T * twist) * dphi_twist;
                 }
             }
         }
-        cout << "A is: \n" << A << "\n";
-        cout << "Registration error is: " << err / 2 << "\n";
-        cout << "Twist is: " << twist.transpose() << "\n";
-        cout << "Transformation Matrix is: \n" << SE3::exp(twist).matrix() << "\n";
-        Vec6 approx_twist = A.inverse() * b;
-        twist += time_step * (approx_twist - twist);
-        computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
-        displayer->addIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur", "Silver");
-        displayer->render();
+//        cout << "A is: \n" << A << "\n";
+//        cout << "Registration error is: " << err / 2 << "\n";
+//        cout << "Twist is: " << twist.transpose() << "\n";
+//        cout << "Pose Matrix is: \n" << SE3::exp(twist).inverse().matrix() << "\n";
+        Vec6 delta_twist = A.inverse() * b;
+        twist += time_step * delta_twist;
+        if (m_is_render) {
+            computeAnotherPhi(cur_depth_image, cur_mask, phi_cur, T_mat);
+            displayer->updateIsoSurface(phi_cur, m_min_coord, m_depth, m_height, m_width, resolution, "cur");
+            displayer->render();
+        }
+    }
+    if (m_is_render) {
+        displayer->close();
     }
     return twist;
 }
@@ -394,6 +537,40 @@ void TSDF::computeAnotherPhi(const cv::Mat &depth_image, const cv::Mat &mask, st
                 auto idx = this->Index(i, j, k);
                 dtype weight;
                 phi[idx] = computePhiWeight(depth_image, mask, i, j, k, T_mat, weight);
+            }
+        }
+    }
+}
+
+void TSDF::parallelIterateVolume(const VarsVolumeParallel &client_data, int i_start, int i_end, dtype &err,
+                                 Eigen::Matrix<dtype, 6, 6> &A, Vec6 &b) {
+    auto &height = client_data.volume_height, &width = client_data.volume_width;
+    auto &T_mat = client_data.T_mat;
+    auto &cur_mask = client_data.cur_mask, &cur_depth_image = client_data.cur_depth_image;
+
+    for (int i = i_start + 1; i < i_end - 1; i++) {
+        for (int j = 1; j < height - 1; j++) {
+            for (int k = 1; k < width - 1; k++) {
+                dtype cur_weight, cur_phi;
+                cur_phi = computePhiWeight(client_data, i, j, k, cur_weight);
+                // todo: error computation can be eliminated when process
+                auto idx = Index(i, j, k);
+                dtype ref_weight = m_weight[idx];
+                dtype ref_phi = phi[idx];
+                if (cur_weight == 0) {  // no contribution to gradient
+                    err += pow(ref_weight * ref_phi, 2);
+                    continue;
+                }
+                else {
+                    err += pow(ref_weight * ref_phi - cur_weight * cur_phi, 2);
+                }
+                Vec6 dphi_twist;    // derivative of phi w.r.t. twist
+                if (!computeGradient(T_mat, i, j, k, dphi_twist)) {     // beam region or zero gradient region
+                    continue;
+                }
+                auto dphi_twist_T = dphi_twist.transpose();
+                A += dphi_twist * dphi_twist_T;
+                b += (ref_phi * ref_weight - cur_phi) * dphi_twist;
             }
         }
     }
