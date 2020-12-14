@@ -7,7 +7,7 @@ Implementation of the paper " SDF-2-SDF: Highly Accurate 3D Object Reconstructio
 + Eigen (used for matrices operations)
 + Sophus (used for Lie algebras)
 + VTK 9.+ (used for visualization)
-+ c++11 or above
++ c++11 or above (used for std::thread)
 
 ### Build
 ```mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release ..```
