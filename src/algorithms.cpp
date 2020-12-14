@@ -43,7 +43,7 @@ void testAll() {
         tsdf->setDelta(.002);
         tsdf->setEta(.002);
         tsdf->setPaddingSize(3);
-//        tsdf->setRender();
+        tsdf->setRender();
         auto start = std::chrono::high_resolution_clock::now();
         twists.emplace_back(tsdf->estimateTwist(p_ref->getImage(), p_cur->getImage(),
                                                 ref_mask, cur_mask,

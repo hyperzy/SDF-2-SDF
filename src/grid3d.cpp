@@ -457,6 +457,7 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
             for_each(bs.begin(), bs.end(), [](Vec6 &b_) {b_.setZero();});
             vector<dtype> errs(num_threads, 0);
             for (int i = 0; i < num_threads; i++) {
+                int start, end;
                 if (remaining_slices-- > 0) {
                     offset = 1;
                 }
@@ -464,8 +465,10 @@ Vec6 TSDF::estimateTwist(const cv::Mat &ref_depth_image, const cv::Mat &cur_dept
                     offset = 0;
                 }
                 int i_end = i_start + num_slices_for_each_thread + offset;
+                start = i_start - (i == 0 ? 0 : 1);     // padding 1 more slice for computing central difference
+                end = i_end + (i == num_threads - 1 ? 0 : 1);
                 threads.emplace_back(thread(&TSDF::parallelIterateVolume, this, client_data,
-                                            i_start, i_end, std::ref(errs[i]), std::ref(As[i]), std::ref(bs[i])));
+                                            start, end, std::ref(errs[i]), std::ref(As[i]), std::ref(bs[i])));
                 i_start = i_end;
             }
             for (int i = 0; i < num_threads; i++) {
