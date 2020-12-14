@@ -1,12 +1,12 @@
 # SDF-2-SDF
-Implementation of the paper " SDF-2-SDF: Highly Accurate 3D Object Reconstruction"
+Implementation of the paper " SDF-2-SDF: Highly Accurate 3D Object Reconstruction".
 
 ## Building Instructions
 ### Dependencies 
-+ OpenCV 3.+ for depth image IO
-+ Eigen for matrices operations
-+ Sophus for Lie algebras
-+ VTK 9.+ for visualization
++ OpenCV 3.+ (used for depth image IO)
++ Eigen (used for matrices operations)
++ Sophus (used for Lie algebras)
++ VTK 9.+ (used for visualization)
 
 ### Build
 ```mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release ..```
