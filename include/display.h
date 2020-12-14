@@ -52,6 +52,7 @@ public:
                           const std::string &surface_name, const std::string  &color = "Silver");
     void addAxes();
     void startRender();
+    void startInteractor();
     void render();
     void close();
     void eventLoop(TSDF *tsdf);

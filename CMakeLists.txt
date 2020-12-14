@@ -32,6 +32,7 @@ include(${VTK_USE_FILE})
 
 aux_source_directory(src SOURCE_FILES)
 
+
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
 target_link_libraries(${PROJECT_NAME} ${VTK_LIBRARIES})

@@ -557,6 +557,10 @@ void Display::startRender() {
 //    m_iren->Start();
 }
 
+void Display::startInteractor() {
+    m_iren->Start();
+}
+
 void Display::render() {
     m_renw->Render();
 }

@@ -73,7 +73,30 @@ inline unsigned long Index(int i, int j, int k, int height, int width) {
 }
 
 // contain some critical variables for parallel processing TSDF volume
-struct VarsVolumeParallel;
+
+struct VarsVolumeParallel {
+    cv::Mat cur_depth_image, cur_mask;
+    Mat4 T_mat;
+    int volume_height, volume_width;  // volume height and width
+    dtype delta, eta;
+    dtype fx, fy, cx, cy;
+    VarsVolumeParallel(const cv::Mat &depth_image, const cv::Mat &mask, const Mat4 &T_mat,
+                       int volume_height, int volume_width, dtype delta, dtype eta, dtype fx, dtype fy, dtype cx, dtype cy):
+            volume_height(volume_height), volume_width(volume_width), delta(delta), eta(eta), fx(fx), fy(fy), cx(cx), cy(cy) {
+        this->T_mat = T_mat;
+        cur_depth_image = depth_image.clone();
+        cur_mask = mask.clone();
+    }
+    VarsVolumeParallel(const VarsVolumeParallel &tsdf) {
+        cur_depth_image = tsdf.cur_depth_image.clone();
+        cur_mask = tsdf.cur_depth_image.clone();
+        T_mat = tsdf.T_mat;
+        volume_height = tsdf.volume_height; volume_width = tsdf.volume_width;
+        delta = tsdf.delta; eta = tsdf.eta;
+        fx = tsdf.fx; fy = tsdf.fy; cx = tsdf.cx; cy = tsdf.cy;
+    }
+    VarsVolumeParallel() {}
+};
 
 class TSDF: public Grid3d {
     dtype m_delta = 0;
@@ -91,6 +114,7 @@ public:
     void setIntrinsic(const Mat3 &K);
     void setPaddingSize(int size);
     Vec3 getMinCoord() const;
+    void setMinCoord(const Vec3 &p) {m_min_coord = p;}
     std::vector<dtype> m_weight;
     void setRender() {m_is_render = true;}
     /**
@@ -167,5 +191,15 @@ public:
     void parallelIterateVolume(const VarsVolumeParallel &client_data,
                                int i_start, int i_end,
                                dtype &err, Eigen::Matrix<dtype, 6, 6> &A, Vec6 &b);
+
+    void parallelComputePhi(const VarsVolumeParallel &client_data, int i_start, int i_end,
+                            std::vector<dtype> &phi, std::vector<dtype> &weight);
+    void parallelFuse(const VarsVolumeParallel &client_data,
+                      int i_start, int i_end,
+                      const std::vector<dtype> &cur_phi, const std::vector<dtype> &cur_weight,
+                      std::vector<dtype> &combined_phi, std::vector<dtype> &combined_weight);
+
+    void parallelInitCoord(int i_start, int i_end, dtype resolution);
+    void parallelInit(dtype resolution, int num_threads = 8);
 };
 #endif //SDF_2_SDF_GRID3D_H

@@ -105,29 +105,6 @@ void Grid3d::initCoord(Vec3 origin, dtype resolution) {
 }
 
 
-struct VarsVolumeParallel {
-    cv::Mat cur_depth_image, cur_mask;
-    Mat4 T_mat;
-    int volume_height, volume_width;  // volume height and width
-    dtype delta, eta;
-    dtype fx, fy, cx, cy;
-    VarsVolumeParallel(const cv::Mat &depth_image, const cv::Mat &mask, const Mat4 &T_mat,
-                       int volume_height, int volume_width, dtype delta, dtype eta, dtype fx, dtype fy, dtype cx, dtype cy):
-            volume_height(volume_height), volume_width(volume_width), delta(delta), eta(eta), fx(fx), fy(fy), cx(cx), cy(cy) {
-        this->T_mat = T_mat;
-        cur_depth_image = depth_image.clone();
-        cur_mask = mask.clone();
-    }
-    VarsVolumeParallel(const VarsVolumeParallel &tsdf) {
-        cur_depth_image = tsdf.cur_depth_image.clone();
-        cur_mask = tsdf.cur_depth_image.clone();
-        T_mat = tsdf.T_mat;
-        volume_height = tsdf.volume_height; volume_width = tsdf.volume_width;
-        delta = tsdf.delta; eta = tsdf.eta;
-        fx = tsdf.fx; fy = tsdf.fy; cx = tsdf.cx; cy = tsdf.cy;
-    }
-};
-
 TSDF::TSDF() {}
 
 void TSDF::setDelta(dtype delta) {
@@ -201,7 +178,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
     m_max_coord(0) = m_1_fx * (ux_max - m_cx) * z_max;
     m_max_coord(1) = m_1_fy * (uy_max - m_cy) * z_max;
 
-//    cout << "max coord before padding: " << m_max_coord << endl;
+//    cout << "max coord before padding:\n" << m_max_coord << endl;
 
     m_min_coord -= Vec3(1., 1., 1.) * resolution * m_padding_size;
     m_max_coord += Vec3(1., 1., 1.) * resolution * m_padding_size;
@@ -209,7 +186,7 @@ void TSDF::Init(const cv::Mat &depth_image, const cv::Mat &mask, dtype resolutio
     m_height = ceil((m_max_coord(1) - m_min_coord(1)) / resolution) + 1;
     m_width = ceil((m_max_coord(0) - m_min_coord(0)) / resolution) + 1;
     m_max_coord = m_min_coord + Vec3(m_width, m_height, m_depth) * resolution;
-//    cout << "max coord after padding" << m_max_coord << endl;
+//    cout << "max coord after padding:\n" << m_max_coord << endl;
     this->Grid3d::Init();
     m_weight.resize(phi.size(), 0);
     // compute truncated signed distance value (level set value)
@@ -576,5 +553,85 @@ void TSDF::parallelIterateVolume(const VarsVolumeParallel &client_data, int i_st
                 b += (ref_phi * ref_weight - cur_phi) * dphi_twist;
             }
         }
+    }
+}
+
+void TSDF::parallelComputePhi(const VarsVolumeParallel &client_data, int i_start, int i_end, std::vector<dtype> &phi,
+                              std::vector<dtype> &weight) {
+    for (int i = i_start; i < i_end; i++) {
+        for (int j = 0; j < client_data.volume_height; j++) {
+            for (int k = 0; k < client_data.volume_width; k++) {
+                auto idx = ::Index(i, j, k, client_data.volume_height, client_data.volume_width);
+                phi[idx] = computePhiWeight(client_data, i, j, k, weight[idx]);
+            }
+        }
+    }
+}
+
+void TSDF::parallelFuse(const VarsVolumeParallel &client_data, int i_start, int i_end,
+                        const std::vector<dtype> &cur_phi, const std::vector<dtype> &cur_weight,
+                        std::vector<dtype> &combined_phi, std::vector<dtype> &combined_weight) {
+    int height = client_data.volume_height, width = client_data.volume_width;
+    for (int i = i_start; i < i_end; i++) {
+        for (int j = 0; j < height; j++) {
+            for (int k = 0; k < width; k++) {
+                auto idx = ::Index(i, j, k, height, width);
+                const dtype &cur_w = cur_weight[idx];
+                dtype &combined_w = combined_weight[idx];
+                if (cur_w == 0 && combined_w == 0) {
+                    continue;
+                }
+                else {
+                    combined_phi[idx] = (cur_w * cur_phi[idx] + combined_w * combined_phi[idx]) / (cur_w + combined_w);
+                    combined_w += cur_w;
+                }
+            }
+        }
+    }
+}
+
+void TSDF::parallelInitCoord(int i_start, int i_end, dtype resolution) {
+    int height = m_height, width = m_width;
+    Vec3 min_coord = m_min_coord;
+    for (int i = i_start; i < i_end; i++) {
+        for (int j = 0; j < height; j++) {
+            for (int k = 0; k < width; k++) {
+                auto idx = ::Index(i, j, k, height, width);
+                this->coord[idx][0] = min_coord(0) + (k + .5) * resolution;       // x
+                this->coord[idx][1] = min_coord(1) + (j + .5) * resolution;       // y
+                this->coord[idx][2] = min_coord(2) + (i + .5) * resolution;       // z
+                this->coord[idx][3] = 1;                                // 1 for homogeneous coordinate
+            }
+        }
+    }
+}
+
+void TSDF::parallelInit(dtype resolution, int num_threads) {
+    if (num_threads == -1) {
+        num_threads = thread::hardware_concurrency();
+    }
+    else if (num_threads <= 0) {
+        cerr << "wrong number of threads.\n";
+        exit(EXIT_FAILURE);
+    }
+    vector<thread> threads;
+    threads.reserve(num_threads);
+    unsigned int size = m_height * m_width * m_depth;
+    coord.resize(size);
+    m_weight.resize(size);
+    phi.resize(size);
+    int num_slices_each_thread = m_depth / num_threads;
+    int remaining_slices = m_depth % num_threads;
+    int i_start = 0, i_end;
+
+    for (int count = 0; count < num_threads; count++) {
+        int offset = 0;
+        if (remaining_slices-- > 0) offset = 1;
+        i_end = i_start + num_slices_each_thread + offset;
+        threads.emplace_back(thread(&TSDF::parallelInitCoord, this, i_start, i_end, resolution));
+        i_start = i_end;
+    }
+    for (int count = 0; count < num_threads; count++) {
+        threads[count].join();
     }
 }
