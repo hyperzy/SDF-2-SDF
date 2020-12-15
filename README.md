@@ -18,4 +18,4 @@ Firstly you need to download dataset from [here](http://campar.in.tum.de/persona
 Then run ```./sdf-2-sdf```
 
 ## Interaction
-All the key/mouse interactions in VTK windows are specified at their website. Basically, press *t* to enable trackball stype, use the mouse wheel to zoom in/out, press the mouse wheel to drage.
+All the key/mouse interactions in VTK windows are specified at VTK's website. Basically, press *t* to enable trackball style, use the mouse wheel to zoom in/out, press the mouse wheel(mouse mid button) to drage the scene.
